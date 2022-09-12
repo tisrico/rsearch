@@ -4,7 +4,7 @@ const path = require('path');
 const spawn = require('child_process').spawn
 
 const app = express();
-const port = 8080;
+const port = 8081;
 
 const server_root = '/home/rico.wang/Src';
 const max_line = 4*1024;
