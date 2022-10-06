@@ -16,9 +16,9 @@ app.get('/search', function(req, res) {
     query.project = path.parse(query.project.split('\\').join('/')).name;
     // console.log(query.key, query.project, query.local_path);
 
-    let search_root = server_root + '/' + query.project;
+    let search_root = server_root + '/' + query.project + query.sfrom;
     let search = query.key;
-    let param = ['-A2', '-B2', '-nL', '--heading'];
+    let param = ['-A3', '-B3', '-nL', '--heading'];
 
     if(query.option) {
         param.push(query.option);
@@ -28,9 +28,10 @@ app.get('/search', function(req, res) {
     let found = 0;
     let done = false;
     let findex = 1;
+    let prev_line = -1;
 
     let grep = spawn('rg', param);
-    //console.log(param);
+    // console.log(param);
 
     let current_file = "";
     let current_data = [];
@@ -62,6 +63,7 @@ app.get('/search', function(req, res) {
             let line_number ='';
             let content = '';
             let line_hit = false;
+            let file_section = false;
 
             let match = reg_ba.exec(line);
             if (match) {
@@ -87,6 +89,7 @@ app.get('/search', function(req, res) {
 
                     if('--' ==  line) {
                         line = current_file;
+                        file_section = true;
                     }
 
                     if (line.length && line[0] == '/') {
@@ -102,14 +105,57 @@ app.get('/search', function(req, res) {
                 }
             }
 
+            function devider() {
+                let ext = path.extname(current_file);
+                let name = path.basename(current_file);
+                //console.log(current_file, ext, name);
+
+                // c/cpp/hpp/h
+                let ret = '// #';
+
+                let main = '#######################DEVIDER-INSERTED#####################';
+                if (ext == '.xml' || ext == '.html') {
+                    ret = '<!--';
+                }
+
+                if (ext == '.lua' || ext == '.sh' || name =='Makefile' || 
+                    name == 'CMakeLists.txt' || ext == '.mk') {
+                    ret = '####';
+                }
+
+                ret += main;
+
+                if (ext == '.xml' || ext == '.html') {
+                    ret = '-->';
+                }
+
+                if(ext == '.json') {
+                    ret = '';
+                }
+
+                return ret;
+            }
+
             if (line_number != '' && found <= max_match) {
                 // console.log('add line: ' + line_number);
                 current_data.push({
                     line_number: line_number,
                     line_hit: line_hit,
-                    content: content
+                    content: content,
+                    line_section: false
                 });
+                prev_line = line_number;
                 return;
+            }
+            else if (file_section && found <= max_match) {
+                current_data.push({
+                    line_number: parseInt(prev_line) + 1,
+                    line_hit: false,
+                    content: devider(),
+                    line_section: true
+                });
+
+                // console.log("xx@line: " + (prev_line + 1));
             }
 
             // console.log(done, file, current_file, current_file.length);
