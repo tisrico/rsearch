@@ -309,6 +309,10 @@ class FavorMessageInputHandler(sublime_plugin.TextInputHandler):
 class FavorFileCommand(sublime_plugin.TextCommand):
     row = 0
     def run(self, edit, favor_message):
+        project_file = self.view.window().project_file_name()
+        project = os.path.basename(project_file)
+        project = os.path.splitext(project)[0]
+
         path = self.view.file_name()
         existing_data = {}
 
@@ -318,13 +322,13 @@ class FavorFileCommand(sublime_plugin.TextCommand):
         data["mesg"] = favor_message
         data["date"] = date.today().strftime("%Y-%m-%d")
 
-        with open(home_dir + '\\favor_file.txt') as f:
+        with open(home_dir + '\\' + project + '_ff.txt') as f:
             existing_data = json.load(f)
 
         existing_data.append(data)
 
-        with open(home_dir + '\\favor_file.txt', 'w') as f:
-            f.write(json.dumps(existing_data))
+        with open(home_dir + '\\' + project + '_ff.txt', 'w') as f:
+            f.write(json.dumps(existing_data, indent="\t"))
 
     def input(self, args):
         sel = self.view.sel()[0]
@@ -335,14 +339,17 @@ class FavorFileCommand(sublime_plugin.TextCommand):
 
 class ListFavorMessageInputHandler(sublime_plugin.ListInputHandler):
     data = {}
-    def __init__(self):
-        with open(home_dir + '\\favor_file.txt') as f:
+    project = ""
+    def __init__(self, project_):
+        project = project_
+        print(project)
+        with open(home_dir + '\\' + project + '_ff.txt') as f:
             self.data = json.load(f)
 
     def list_items(self):
         li = []
         for o in self.data:
-            message = o["line"] + " " + o["mesg"] + " " + o["file"]
+            message = o["date"] + " " + o["mesg"] + " " + o["file"]
             li.append((message, o))
 
         return li
@@ -351,12 +358,14 @@ class ListFavorMessageInputHandler(sublime_plugin.ListInputHandler):
         return "search by description and file name" 
 
 class ListFavorFileCommand(sublime_plugin.TextCommand):
-
     def run(self, edit, list_favor_message):
         print(list_favor_message)
         view = self.view.window().open_file(list_favor_message["file"])
-        view.run_command("show_overlay", {"overlay":"goto", "text": ":" + list_favor_message["line"]})
+        view.window().run_command("show_overlay", {"overlay":"goto", "text": ":" + list_favor_message["line"]})
 
     def input(self, args):
-        return ListFavorMessageInputHandler()
+        project_file = self.view.window().project_file_name()
+        project = os.path.basename(project_file)
+        project = os.path.splitext(project)[0]
+        return ListFavorMessageInputHandler(project)
 
