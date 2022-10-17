@@ -20,7 +20,8 @@ search_last_key = ""
 search_last_option = '-i'
 
 search_history = []
-home_dir = os.path.expanduser("~")
+#home_dir = os.path.expanduser("~")
+home_dir = "Y:\\.Index"
 
 search_window = None
 search_thread = None
@@ -32,6 +33,14 @@ search_thread = None
 # def plugin_unloaded():
 #     with open(home_dir + '\\rsearch.history', 'w+') as f:
 #         f.writelines("%s\n" % line for line in search_history)
+
+def EmptySearchResult():
+    for sheet in search_window.sheets():
+        if sheet.view().name() == search_result_view_name:
+            find_result = sheet.view()
+            find_result.run_command("select_all")
+            find_result.run_command("right_delete")
+            break
 
 def OutputSearchResult(result):
     find_result = None
@@ -84,6 +93,7 @@ class RemotSearchClass(threading.Thread):
         self.conn.close()
 
     def run(self):
+        EmptySearchResult()
         self.conn = http.client.HTTPConnection(self.server, self.port)
         info = {'key': self.search, 'option':self.option, 'project': self.project, 'local_path': self.local_path, 'sfrom': self.sfrom}
 
@@ -339,10 +349,7 @@ class FavorFileCommand(sublime_plugin.TextCommand):
 
 class ListFavorMessageInputHandler(sublime_plugin.ListInputHandler):
     data = {}
-    project = ""
-    def __init__(self, project_):
-        project = project_
-        print(project)
+    def __init__(self, project):
         with open(home_dir + '\\' + project + '_ff.txt') as f:
             self.data = json.load(f)
 
@@ -361,7 +368,9 @@ class ListFavorFileCommand(sublime_plugin.TextCommand):
     def run(self, edit, list_favor_message):
         print(list_favor_message)
         view = self.view.window().open_file(list_favor_message["file"])
-        view.window().run_command("show_overlay", {"overlay":"goto", "text": ":" + list_favor_message["line"]})
+        line = int(list_favor_message["line"]) + 1
+        line = str(line)
+        view.window().run_command("show_overlay", {"overlay":"goto", "text": ":" + line})
 
     def input(self, args):
         project_file = self.view.window().project_file_name()
