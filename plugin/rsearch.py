@@ -8,7 +8,7 @@ from datetime import date
 import json
 
 
-hint_search = "type your key words/patten to search"
+hint_search = "type your key words/pattern to search"
 hint_option = "type your rg/grep options (-nL/-nR is appended automatically)"
 hint_search_again = 'select items to re-search'
 hint_search_from = 'select path to search from'
@@ -19,12 +19,16 @@ search_result_sheet_cancled_message= "Search terminated\n"
 search_last_key = ""
 search_last_option = '-i'
 
+filename_hint_search = "type your filename pattern to search"
+search_last_file = None
+
 search_history = []
 #home_dir = os.path.expanduser("~")
 home_dir = "Y:\\.Index"
 
 search_window = None
 search_thread = None
+filename_search_thread = None
 
 # def plugin_loaded():
 #     with open(home_dir + '\\rsearch.history', 'r') as f:
@@ -76,7 +80,7 @@ class RemotSearchClass(threading.Thread):
     search = ""
     option = ""
 
-    def __init__(self, search, sfrom, option, project, local_path, server, port):
+    def __init__(self, search, sfrom, option, project, local_path, server, port, type):
         threading.Thread.__init__(self)
 
         self.search = search
@@ -87,6 +91,7 @@ class RemotSearchClass(threading.Thread):
         self.server = server
         self.port = port
         self.cancled = False
+        self.type = type
 
     def cancel(self):
         self.cancled = True
@@ -97,7 +102,11 @@ class RemotSearchClass(threading.Thread):
         self.conn = http.client.HTTPConnection(self.server, self.port)
         info = {'key': self.search, 'option':self.option, 'project': self.project, 'local_path': self.local_path, 'sfrom': self.sfrom}
 
-        self.conn.request("GET","/search?" + urlencode(info))
+        base = "/search?"
+        if self.type == "name":
+            base = "/filename?"
+
+        self.conn.request("GET", base + urlencode(info))
         resp = self.conn.getresponse()
 
         while chunk := resp.read(4096).decode("utf-8"):
@@ -184,6 +193,57 @@ class AgainInputHandler(sublime_plugin.ListInputHandler):
         if 'option' not in args:
             return OptionInputHandler(search_last_option)
 
+class SearchFilenameInputHandler(sublime_plugin.TextInputHandler):
+    search_key = None
+
+    def __init__(self, preset=None):
+        if preset is not None and len(preset) > 0:
+            self.search_key = preset
+
+    def initial_text(self):
+        return self.search_key
+
+    def placeholder(self):
+        return filename_hint_search
+
+class RemoteFilenameSearchCommand(sublime_plugin.TextCommand):
+    def run(self, edit, search_filename, local_path, server, port):
+        global search_window
+        global filename_search_thread
+        global search_last_file
+        global search_history
+        global search_last_option
+
+        project_file = self.view.window().project_file_name()
+
+        # print(search_filename, project_file, local_path)
+        search_window = self.view.window()
+
+        #if search_thread is not None and search_thread.is_alive():
+        #    search_thread.cancel()
+        #    search_thread.join()
+
+        option = {}
+
+        OutputSearchResult(search_result_sheet_head_message + search_filename + '"(filename)"'  + '" ...\n')
+        filename_search_thread = RemotSearchClass(search_filename, '/', option, project_file, local_path, server, port, 'name')
+        filename_search_thread.start()
+
+        search_last_file = search_filename
+
+
+    def input(self, args):
+        sel = self.view.sel()[0]
+        selected = self.view.substr(sel)
+
+        if "" == selected:
+            selected = search_last_file
+
+        return SearchFilenameInputHandler(selected)
+
+    def input_description(self):
+        return 'Remote filename search'
+
 class RemoteSearchCommand(sublime_plugin.TextCommand):
     def run(self, edit, search, option, local_path, server, port):
         global search_window
@@ -202,7 +262,7 @@ class RemoteSearchCommand(sublime_plugin.TextCommand):
         #    search_thread.join()
 
         OutputSearchResult(search_result_sheet_head_message + search + '" "' + option + '" ...\n')
-        search_thread = RemotSearchClass(search, '/', option, project_file, local_path, server, port)
+        search_thread = RemotSearchClass(search, '/', option, project_file, local_path, server, port, 'content')
         search_thread.start()
 
         search_last_key = search
@@ -244,7 +304,7 @@ class RemoteSearchAgainCommand(sublime_plugin.TextCommand):
         #    search_thread.join()
 
         OutputSearchResult(search_result_sheet_head_message + again + '" "' + option + '" ...\n')
-        search_thread = RemotSearchClass(again, '/', option, project_file, local_path, server, port)
+        search_thread = RemotSearchClass(again, '/', option, project_file, local_path, server, port, 'content')
         search_thread.start()
 
         search_last_key = again
@@ -281,7 +341,7 @@ class RemoteSearchFromCommand(sublime_plugin.TextCommand):
         #    search_thread.join()
 
         OutputSearchResult(search_result_sheet_head_message + search + '" "' + option + '" from "' + sfrom + '" ...\n')
-        search_thread = RemotSearchClass(search, sfrom, option, project_file, local_path, server, port)
+        search_thread = RemotSearchClass(search, sfrom, option, project_file, local_path, server, port, 'content')
         search_thread.start()
 
         search_last_key = search
@@ -358,6 +418,8 @@ class ListFavorMessageInputHandler(sublime_plugin.ListInputHandler):
         for o in self.data:
             message = o["date"] + " " + o["mesg"] + " " + o["file"]
             li.append((message, o))
+
+        li.reverse()
 
         return li
 

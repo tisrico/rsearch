@@ -10,6 +10,89 @@ const server_root = '/home/rico.wang/Src';
 const max_match = 1024;
 const max_message = 'Max matches allowed to return has reached.\n';
 
+app.get('/filename', function(req, res) {
+    let start = new Date();
+    let query = url.parse(req.url, true).query;
+    query.project = path.parse(query.project.split('\\').join('/')).name;
+
+    // console.log(query);
+    let search_root = server_root + '/' + query.project + query.sfrom;
+    let search = query.key;
+
+    let param = ['-L', search_root];
+    let find = spawn('find', param);
+    var done = false;
+    var found = 0;
+    var offset = server_root.length;
+
+    const re = new RegExp(search);
+
+    function push(data) {
+        result = [];
+        let lines = data.toString();
+        lines = lines.split('\n');
+
+        lines.map((line) => {
+            line = line.slice(offset);
+            if (done || !line.match(re)) {
+                return;
+            }
+
+            line = query.local_path + line.split('/').join('\\');
+            found++;
+
+            result.push("<" + found + ">");
+            result.push(line + ":");
+            result.push("");
+
+            if (found == max_match) {
+                done = true;
+            }
+        });
+
+        result = result.join("\n");
+        if (result.length) {
+            return result + "\n";
+        }
+
+        return result;
+   }
+
+    find.stdout.on('data', (data)=>{
+        if (done) {
+            // console.log("done!\n");
+            return;
+        }
+
+        res.write(push(data));
+        if (done) {
+          res.write(max_message);
+          find.kill('SIGINT');
+        }
+    });
+
+    find.stderr.on('data', (data)=>{
+        // console.log(data.toString());
+        // res.write(data);
+    });
+
+    function push_time(res) {
+        let now = new Date();
+        res.write("Server side processing time: " + (now-start)/1000 + " seconds, ");
+        res.write("matches: " + found + ".\n");
+        console.log({key: query.key, time: (now-start)/1000, found: found, date: now});
+    }
+
+    find.on('close', (code)=>{
+        // console.log(code);
+        push_time(res);
+        res.end();
+    });
+
+    res.write(`Results from ${query.project}\n\n`);
+
+});
+
 app.get('/search', function(req, res) {
     let start = new Date();
     let query = url.parse(req.url, true).query;
@@ -18,11 +101,8 @@ app.get('/search', function(req, res) {
 
     let search_root = server_root + '/' + query.project + query.sfrom;
     let search = query.key;
-    let param = ['-A3', '-B3', '-nL', '--heading'];
+    let param = ['-A3', '-B3', '-nL', '--heading', '--no-ignore'];
 
-    if(query.option) {
-        param.push(query.option);
-    }
     param.push(search);
     param.push(search_root);
     let found = 0;
@@ -56,8 +136,8 @@ app.get('/search', function(req, res) {
                 return;
             }
 
-            let reg_ba = /([0-9]+)-(.*)/;
-            let reg_hit = /([0-9]+):(.*)/;
+            let reg_ba = /^([0-9]+)-(.*)/;
+            let reg_hit = /^([0-9]+):(.*)/;
 
             let file = '';
             let line_number ='';
@@ -92,7 +172,7 @@ app.get('/search', function(req, res) {
                         file_section = true;
                     }
 
-                    if (line.length && line[0] == '/') {
+                    if (line.length && line[0] == '/' && line.length < 512) {
                         file = line;
                         if (current_file == '') {
                             current_file = file;
@@ -177,7 +257,7 @@ app.get('/search', function(req, res) {
                 current_data.map((record)=>{
                     let out = str_prefix(record.line_number, width);
                     out += record.line_hit?': ':'  ';
-                    out += record.content;
+                    out += record.content.slice(0, 512);
                     result.push(out);
                 });
 
