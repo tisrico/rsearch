@@ -1,7 +1,8 @@
 const express = require('express');
 const url = require('url');
 const path = require('path');
-const spawn = require('child_process').spawn
+const spawn = require('child_process').spawn;
+const exec = require('child_process').exec;
 
 const app = express();
 const port = 8080;
@@ -97,12 +98,13 @@ app.get('/search', function(req, res) {
     let start = new Date();
     let query = url.parse(req.url, true).query;
     query.project = path.parse(query.project.split('\\').join('/')).name;
-    // console.log(query.key, query.project, query.local_path);
+    // console.log(query.key, query.project, query.local_path, query);
 
     let search_root = server_root + '/' + query.project + query.sfrom;
     let search = query.key;
     let param = ['-A3', '-B3', '-nL', '--heading', '--no-ignore'];
 
+    param.push(query.option)
     param.push(search);
     param.push(search_root);
     let found = 0;
@@ -115,6 +117,7 @@ app.get('/search', function(req, res) {
 
     let current_file = "";
     let current_data = [];
+    let file_list = []; 
 
     function str_prefix(s, n) {
         let str = s.toString();
@@ -244,11 +247,13 @@ app.get('/search', function(req, res) {
                 // console.log("batch output");
                 let count = 0;
                 current_data.map((r)=>{ if(r.line_hit) count++});
+                file_list.push(`<${findex}> <${count}>`);
                 result.push(`<${findex++}> <${count}>`);
 
                 let head = current_file.slice(server_root.length);
                 head = query.local_path + head.split('/').join('\\');
                 result.push(head + ':');
+                file_list.push(head + ':');
 
                 current_data.sort((a, b)=>{ return a.line_number - b.line_number});
 
@@ -273,8 +278,10 @@ app.get('/search', function(req, res) {
     }
 
     function push_time(res) {
+        res.write(file_list.join("\n") + "\n");
+
         let now = new Date();
-        res.write("Server side processing time: " + (now-start)/1000 + " seconds, ");
+        res.write("\nServer side processing time: " + (now-start)/1000 + " seconds, ");
         res.write("matches: " + found + ".\n");
         console.log({key: query.key, option: query.option, time: (now-start)/1000, found: found, date: now});
     }
@@ -309,4 +316,50 @@ app.get('/search', function(req, res) {
 
 app.listen(port, function() {
     console.log(`Remote search(rg backed) app listening on port ${port}!`);
+});
+
+var fs = require('fs');
+var util = require('util');
+var log_file = fs.createWriteStream(__dirname + '/rg_search.log', {flags : 'w'});
+var log_stdout = process.stdout;
+
+console.log = function(d) { //
+  log_file.write(util.format(d) + '\n');
+  log_stdout.write(util.format(d) + '\n');
+};
+
+app.get('/blame', function(req, res) {
+    let query = url.parse(req.url, true).query;
+    let project = path.parse(query.project.split('\\').join('/')).name;
+    let local_path = '~/Src' + query.local_path.replace(/\\/g, '/').slice(2);
+    let cmd = "svn blame $(readlink -f " + local_path + ")";
+
+    let blame = exec(cmd);
+
+    blame.stdout.on('data', (data)=>{
+        res.write(data);
+    });
+
+    blame.stderr.on('data', (data)=>{
+        // console.log(data.toString());
+        // res.write(data);
+    });
+
+    blame.on('close', (code)=>{
+        let cmd = "svn log $(readlink -f " + local_path + ")";
+        let log = exec(cmd);
+
+        log.stdout.on('data', (data)=>{
+            res.write(data);
+        });
+
+        log.stderr.on('data', (data)=>{
+            // console.log(data.toString());
+            // res.write(data);
+        });
+
+        log.on('close', (code)=>{
+            res.end();
+        });
+    });
 });

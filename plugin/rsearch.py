@@ -46,6 +46,23 @@ def EmptySearchResult():
             find_result.run_command("right_delete")
             break
 
+def GotoSearchResult(line):
+    find_result = None
+
+    for sheet in search_window.sheets():
+        if sheet.view().name() == search_result_view_name:
+            find_result = sheet.view()
+            search_window.focus_sheet(sheet)
+            break
+
+    if find_result is None:
+        find_result = search_window.new_file()
+
+    pt = find_result.text_point(line, 0)
+    find_result.sel().clear()
+    find_result.sel().add(sublime.Region(pt))
+    find_result.show(pt)
+
 def OutputSearchResult(result):
     find_result = None
 
@@ -92,6 +109,7 @@ class RemotSearchClass(threading.Thread):
         self.port = port
         self.cancled = False
         self.type = type
+        self.blame_line = None
 
     def cancel(self):
         self.cancled = True
@@ -106,6 +124,9 @@ class RemotSearchClass(threading.Thread):
         if self.type == "name":
             base = "/filename?"
 
+        if self.type == "blame":
+            base = "/blame?"
+
         self.conn.request("GET", base + urlencode(info))
         resp = self.conn.getresponse()
 
@@ -118,6 +139,7 @@ class RemotSearchClass(threading.Thread):
             OutputSearchResult(search_result_sheet_cancled_message)
         else:
             OutputSearchResult(search_result_sheet_foot_message)
+            GotoSearchResult(self.blame_line)
 
 class OptionInputHandler(sublime_plugin.TextInputHandler):
     search_option = None
@@ -156,7 +178,7 @@ class SfromInputHandler(sublime_plugin.ListInputHandler):
 
     def next_input(self, args):
         if 'option' not in args:
-            return OptionInputHandler(search_last_option)            
+            return OptionInputHandler(search_last_option)
 
 class SearchInputHandler(sublime_plugin.TextInputHandler):
     search_key = None
@@ -367,14 +389,14 @@ class RemoteSearchFromCommand(sublime_plugin.TextCommand):
 
 class FavorMessageInputHandler(sublime_plugin.TextInputHandler):
     desc = None
-    def __init__(self, preset=None): 
+    def __init__(self, preset=None):
         self.desc = preset
 
     def initial_text(self):
         return self.desc
 
     def placeholder(self):
-        return "give a description" 
+        return "give a description"
 
 class FavorFileCommand(sublime_plugin.TextCommand):
     row = 0
@@ -424,7 +446,7 @@ class ListFavorMessageInputHandler(sublime_plugin.ListInputHandler):
         return li
 
     def placeholder(self):
-        return "search by description and file name" 
+        return "search by description and file name"
 
 class ListFavorFileCommand(sublime_plugin.TextCommand):
     def run(self, edit, list_favor_message):
@@ -439,4 +461,29 @@ class ListFavorFileCommand(sublime_plugin.TextCommand):
         project = os.path.basename(project_file)
         project = os.path.splitext(project)[0]
         return ListFavorMessageInputHandler(project)
+
+class RemoteCodeBlameCommand(sublime_plugin.TextCommand):
+    def run(self, edit, server, port):
+        global search_window
+        # Get the current cursor position
+        cursor_pos = self.view.sel()[0].begin()
+
+        # Get the row and column of the cursor position
+        row, col = self.view.rowcol(cursor_pos)
+        local_path = self.view.file_name()
+        project_file = self.view.window().project_file_name()
+        project = os.path.basename(project_file)
+        project = os.path.splitext(project)[0]
+        option = {}
+
+        # OutputSearchResult(search_result_sheet_head_message + search_filename + '"(filename)"'  + '" ...\n')
+        search_window = self.view.window()
+        # OutputSearchResult("")
+        #EmptySearchResult()
+        print(project_file)
+        print(local_path)
+        filename_search_thread = RemotSearchClass("", '/', option, project_file, local_path, server, port, 'blame')
+        filename_search_thread.blame_line = row;
+
+        filename_search_thread.start()
 
