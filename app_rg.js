@@ -102,7 +102,7 @@ app.get('/search', function(req, res) {
 
     let search_root = server_root + '/' + query.project + query.sfrom;
     let search = query.key;
-    let param = ['-A3', '-B3', '-nL', '--heading', '--no-ignore'];
+    let param = ['-A3', '-B3', '-nL', '--heading', '--no-ignore', '-g', '!{node_modules,.svn,.git}/'];
 
     param.push(query.option)
     param.push(search);
@@ -113,7 +113,7 @@ app.get('/search', function(req, res) {
     let prev_line = -1;
 
     let grep = spawn('rg', param);
-    // console.log(param);
+    // console.log('rg ' + param.join(" "));
 
     let current_file = "";
     let current_data = [];
@@ -324,8 +324,8 @@ var log_file = fs.createWriteStream(__dirname + '/rg_search.log', {flags : 'w'})
 var log_stdout = process.stdout;
 
 console.log = function(d) { //
-  log_file.write(util.format(d) + '\n');
-  log_stdout.write(util.format(d) + '\n');
+    log_file.write(util.format(d) + '\n');
+    log_stdout.write(util.format(d) + '\n');
 };
 
 app.get('/blame', function(req, res) {
@@ -361,5 +361,53 @@ app.get('/blame', function(req, res) {
         log.on('close', (code)=>{
             res.end();
         });
+    });
+});
+
+app.get('/diff', function(req, res) {
+    let query = url.parse(req.url, true).query;
+    let project = path.parse(query.project.split('\\').join('/')).name;
+    let option = JSON.parse(query.option.replace(/'/g,'"'));
+    let revision = option.revision;
+
+    query.project = path.parse(query.project.split('\\').join('/')).name;
+    let search_root = server_root + '/' + query.project;
+
+    let cmd = "svn log http://svn/main -c " + revision;
+    cmd += ";" + "svn diff http://svn/main -c " + revision;
+
+    if (revision == '') {
+        let search_index = server_root + '/' + query.project + "/index.json";
+        search_root = "";
+
+        try {
+            // for virtual project workspace
+            search_root = JSON.parse(fs.readFileSync(search_index)).target;
+        }
+        catch(err) {
+            search_root = server_root + '/' + query.project;
+        }
+        cmd = "ws diff";
+    }
+
+    // console.log(cmd, search_root);
+
+    let diff = exec(cmd, {cwd: search_root} );
+    let index = 0;
+
+    diff.stdout.on('data', (data)=>{
+        if (index++ < 256) {
+            res.write(data);
+        }
+    });
+
+    diff.stderr.on('data', (data)=>{
+            // console.log(data.toString());
+            // res.write(data);
+    });
+
+    diff.on('close', (code)=>{
+        res.write("\n\n");
+        res.end();
     });
 });

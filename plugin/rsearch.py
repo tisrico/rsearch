@@ -22,6 +22,8 @@ search_last_option = '-i'
 filename_hint_search = "type your filename pattern to search"
 search_last_file = None
 
+hint_remote_revision = "type the revision number to search"
+
 search_history = []
 #home_dir = os.path.expanduser("~")
 home_dir = "Y:\\.Index"
@@ -29,6 +31,9 @@ home_dir = "Y:\\.Index"
 search_window = None
 search_thread = None
 filename_search_thread = None
+last_revision = None
+diff_expected = None
+kept_index = 1
 
 # def plugin_loaded():
 #     with open(home_dir + '\\rsearch.history', 'r') as f:
@@ -57,11 +62,24 @@ def GotoSearchResult(line):
 
     if find_result is None:
         find_result = search_window.new_file()
+        find_result.set_scratch(True)
 
     pt = find_result.text_point(line, 0)
     find_result.sel().clear()
     find_result.sel().add(sublime.Region(pt))
     find_result.show(pt)
+
+def KeepSearchResult(self, title):
+    global kept_index
+    if not title:
+        title = search_result_view_name
+
+    for sheet in self.view.window().sheets():
+        if sheet.view().name() == search_result_view_name:
+            find_result = sheet.view()
+            find_result.set_name("{} [{}]".format(title, kept_index))
+            kept_index = kept_index + 1
+            find_result.set_scratch(False)
 
 def OutputSearchResult(result):
     find_result = None
@@ -74,16 +92,22 @@ def OutputSearchResult(result):
 
     if find_result is None:
         view = search_window.new_file()
+        view.set_scratch(True)
         view.set_name(search_result_view_name)
-        view.assign_syntax("Packages/Default/Find Results.hidden-tmLanguage")
-        view.settings().set("result_file_regex", r'^([^ \t].*):$')
-        view.settings().set("result_line_regex", r"^ +([0-9]+):")
+
         view.settings().set("detect_indentation", False)
         view.settings().set("auto_indent", False)
         view.settings().set("smart_indent", False)
         view.settings().set("native_tabs", 'system')
 
         find_result = view
+
+    if diff_expected:
+        find_result.set_syntax_file('Packages/Diff/Diff.sublime-syntax')
+    else:
+        find_result.assign_syntax("Packages/Default/Find Results.hidden-tmLanguage")
+        find_result.settings().set("result_file_regex", r'^([^ \t].*):$')
+        find_result.settings().set("result_line_regex", r"^ +([0-9]+):")
 
     #find_result.run_command("append", {"characters": result, force: True, scroll_to_end: False})
     find_result.run_command("move_to", {"to": "eof", "extend": False})
@@ -116,6 +140,8 @@ class RemotSearchClass(threading.Thread):
         self.conn.close()
 
     def run(self):
+        global diff_expected
+
         EmptySearchResult()
         self.conn = http.client.HTTPConnection(self.server, self.port)
         info = {'key': self.search, 'option':self.option, 'project': self.project, 'local_path': self.local_path, 'sfrom': self.sfrom}
@@ -126,6 +152,12 @@ class RemotSearchClass(threading.Thread):
 
         if self.type == "blame":
             base = "/blame?"
+
+        if self.type == "diff":
+            diff_expected = True
+            base = "/diff?"
+        else:
+            diff_expected = False
 
         self.conn.request("GET", base + urlencode(info))
         resp = self.conn.getresponse()
@@ -228,6 +260,15 @@ class SearchFilenameInputHandler(sublime_plugin.TextInputHandler):
     def placeholder(self):
         return filename_hint_search
 
+def GetProjectName(view):
+    project_file = view.window().project_file_name()
+    if project_file:
+        return project_file
+
+    opened_folders = view.window().folders()
+    if opened_folders:
+        return opened_folders[0] + ".sublime-project"
+
 class RemoteFilenameSearchCommand(sublime_plugin.TextCommand):
     def run(self, edit, search_filename, local_path, server, port):
         global search_window
@@ -236,7 +277,8 @@ class RemoteFilenameSearchCommand(sublime_plugin.TextCommand):
         global search_history
         global search_last_option
 
-        project_file = self.view.window().project_file_name()
+        # project_file = self.view.window().project_file_name()
+        project_file = GetProjectName(self.view)
 
         # print(search_filename, project_file, local_path)
         search_window = self.view.window()
@@ -274,7 +316,8 @@ class RemoteSearchCommand(sublime_plugin.TextCommand):
         global search_history
         global search_last_option
 
-        project_file = self.view.window().project_file_name()
+        # project_file = self.view.window().project_file_name()
+        project_file = GetProjectName(self.view)
 
         # print(search, project_file, local_path)
         search_window = self.view.window()
@@ -316,7 +359,8 @@ class RemoteSearchAgainCommand(sublime_plugin.TextCommand):
         global search_history
         global search_last_option
 
-        project_file = self.view.window().project_file_name()
+        # project_file = self.view.window().project_file_name()
+        project_file = GetProjectName(self.view)
 
         # print(again, project_file, local_path)
         search_window = self.view.window()
@@ -353,7 +397,8 @@ class RemoteSearchFromCommand(sublime_plugin.TextCommand):
         global search_history
         global search_last_option
 
-        project_file = self.view.window().project_file_name()
+        # project_file = self.view.window().project_file_name()
+        project_file = GetProjectName(self.view)
 
         # print(search, project_file, local_path)
         search_window = self.view.window()
@@ -401,7 +446,9 @@ class FavorMessageInputHandler(sublime_plugin.TextInputHandler):
 class FavorFileCommand(sublime_plugin.TextCommand):
     row = 0
     def run(self, edit, favor_message):
-        project_file = self.view.window().project_file_name()
+        # project_file = self.view.window().project_file_name()
+        project_file = GetProjectName(self.view)
+
         project = os.path.basename(project_file)
         project = os.path.splitext(project)[0]
 
@@ -457,7 +504,9 @@ class ListFavorFileCommand(sublime_plugin.TextCommand):
         view.window().run_command("show_overlay", {"overlay":"goto", "text": ":" + line})
 
     def input(self, args):
-        project_file = self.view.window().project_file_name()
+        # project_file = self.view.window().project_file_name()
+        project_file = GetProjectName(self.view)
+
         project = os.path.basename(project_file)
         project = os.path.splitext(project)[0]
         return ListFavorMessageInputHandler(project)
@@ -471,7 +520,10 @@ class RemoteCodeBlameCommand(sublime_plugin.TextCommand):
         # Get the row and column of the cursor position
         row, col = self.view.rowcol(cursor_pos)
         local_path = self.view.file_name()
-        project_file = self.view.window().project_file_name()
+
+        # project_file = self.view.window().project_file_name()
+        project_file = GetProjectName(self.view)
+
         project = os.path.basename(project_file)
         project = os.path.splitext(project)[0]
         option = {}
@@ -487,3 +539,72 @@ class RemoteCodeBlameCommand(sublime_plugin.TextCommand):
 
         filename_search_thread.start()
 
+
+class RevisionInputHandler(sublime_plugin.TextInputHandler):
+    search_revision = None
+
+    def __init__(self, revision=None, sfrom=None):
+        if revision is not None and len(revision) > 0:
+            self.search_revision = revision
+
+    def initial_text(self):
+        return self.search_revision
+
+    def placeholder(self):
+        return hint_remote_revision
+
+class RemoteRevisionDiffCommand(sublime_plugin.TextCommand):
+    def run(self, edit, revision, server, port):
+        global search_window
+        global last_revision
+
+        # Get the current cursor position
+        cursor_pos = self.view.sel()[0].begin()
+
+        # Get the row and column of the cursor position
+        row, col = self.view.rowcol(cursor_pos)
+        local_path = self.view.file_name()
+
+        # project_file = self.view.window().project_file_name()
+        project_file = GetProjectName(self.view)
+
+        project = os.path.basename(project_file)
+        project = os.path.splitext(project)[0]
+        option = {"revision": revision}
+
+        # OutputSearchResult(search_result_sheet_head_message + search_filename + '"(filename)"'  + '" ...\n')
+        search_window = self.view.window()
+        # OutputSearchResult("")
+        # EmptySearchResult()
+        # print(project_file)
+        # print(local_path)
+
+        last_revision = revision
+        filename_search_thread = RemotSearchClass("", '/', option, project_file, local_path, server, port, 'diff')
+
+        filename_search_thread.start()
+
+    def input(self, args):
+
+        sel = self.view.sel()[0]
+        selected = self.view.substr(sel)
+
+        if selected == "":
+            selected = last_revision
+
+        return RevisionInputHandler(selected)
+
+class TitleInputHandler(sublime_plugin.TextInputHandler):
+
+    def initial_text(self):
+        return ""
+
+    def placeholder(self):
+        return "title for saving search result"
+
+class KeepSearchResultCommand(sublime_plugin.TextCommand):
+    def run(self, edit, title):
+        KeepSearchResult(self, title)
+
+    def input(self, args):
+        return TitleInputHandler()
