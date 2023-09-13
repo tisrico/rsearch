@@ -366,6 +366,7 @@ app.get('/blame', function(req, res) {
 
 app.get('/diff', function(req, res) {
     let query = url.parse(req.url, true).query;
+	console.log(query);
     let project = path.parse(query.project.split('\\').join('/')).name;
     let option = JSON.parse(query.option.replace(/'/g,'"'));
     let revision = option.revision;
@@ -387,7 +388,14 @@ app.get('/diff', function(req, res) {
         catch(err) {
             search_root = server_root + '/' + query.project;
         }
-        cmd = "ws diff";
+
+        try {
+            fs.accessSync(search_root + "/ws.cfg", fs.constants.F_OK)
+            cmd = "ws diff";
+        }
+        catch(err) {
+            cmd = "svn diff";
+        }
     }
 
     // console.log(cmd, search_root);
@@ -402,8 +410,8 @@ app.get('/diff', function(req, res) {
     });
 
     diff.stderr.on('data', (data)=>{
-            // console.log(data.toString());
-            // res.write(data);
+        // console.log(data.toString());
+        // res.write(data);
     });
 
     diff.on('close', (code)=>{
